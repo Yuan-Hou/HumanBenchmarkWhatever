@@ -111,7 +111,12 @@ class Person:
         return 0
 
     def get_clothing_list(self):
-        return self.raw_data.get("qwen_detailing", {}).get("clothing", [])
+        clothings = self.raw_data.get("qwen_detailing", {}).get("clothing", [])
+        if isinstance(clothings, list):
+            return clothings
+        elif isinstance(clothings, dict) and not clothings["vague"]:
+            return clothings["clothing"]
+        return []
 
 
 class Picture:
