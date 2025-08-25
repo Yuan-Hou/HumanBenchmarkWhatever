@@ -25,24 +25,24 @@ class HoiObject:
 class Hoi:
     def __init__(self, data, obj: HoiObject):
         self.raw_data = data
-        self.obj = obj
+        self.obj: HoiObject = obj
 
 class Person:
     def __init__(self, data, detect_results):
         self.raw_data = data
-        self.hois = []
+        self.hois: List[Hoi] = []
         if data.get("without_face") is not True and data.get("face_box") is not None:
-            self.face_box = detect_results["face_boxes"][data.get("face_box")]
+            self.face_box:List[float] = detect_results["face_boxes"][data.get("face_box")]
         else:
             self.face_box = None
 
         if data.get("body_box") is not None:
-            self.body_box = detect_results["body_boxes"][data.get("body_box")]
+            self.body_box:List[float] = detect_results["body_boxes"][data.get("body_box")]
         else:
             self.body_box = None
 
         if data.get("skeleton") is not None:
-            self.skeleton = detect_results["skeletons"][data.get("skeleton")]
+            self.skeleton:List[List[float]] = detect_results["skeletons"][data.get("skeleton")]
         else:
             self.skeleton = None
 
@@ -110,19 +110,24 @@ class Person:
             return result
         return 0
 
-    def get_clothing_list(self):
+    def get_clothing_list(self, only_confident = False):
         clothings = self.raw_data.get("qwen_detailing", {}).get("clothing", [])
         if isinstance(clothings, list):
-            return clothings
-        elif isinstance(clothings, dict) and not clothings["vague"]:
-            return clothings["clothing"]
-        return []
+            clothings = clothings
+        elif isinstance(clothings, dict):
+            if only_confident and clothings["vague"]:
+                clothings = []
+            else:
+                clothings = clothings["clothing"]
+        if only_confident:
+            clothings = [c for c in clothings if c.get("belonging_confident", True) and c.get("existence_confident", True)]
+        return clothings
 
 
 class Picture:
     def __init__(self, data):
         self.raw_data = data
-        self.persons = [Person(p, data["detect_results"]) for p in data.get("persons", []) if p.get("deleted") is not True]
+        self.persons:List[Person] = [Person(p, data["detect_results"]) for p in data.get("persons", []) if p.get("deleted") is not True]
         self.hoi_objects = []
         for obj in data.get("objects", []):
             if obj.get("deleted") is not True:
@@ -161,8 +166,8 @@ class QuestionGenerator:
     """题目生成器基类"""
     
     def __init__(self, dataset_pictures):
-        self.dataset_pictures = dataset_pictures
-        self.picture_occurrence = {}
+        self.dataset_pictures: List[Picture] = dataset_pictures
+        self.picture_occurrence: Dict[Picture, int] = {}
     
     def filter_pictures(self):
         """过滤图片，子类需要重写此方法"""

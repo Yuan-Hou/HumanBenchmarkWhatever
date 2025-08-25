@@ -15,12 +15,14 @@ class MultiPersonClothingFeatureQuestionGenerator(QuestionGenerator):
         self.clothing_name_color_2_picture_dict: Dict[str, Dict[str, List]] = {}
         self.synonym_dict: Dict[str, List[str]] = {}
         self.distinguishable_dict: Dict[str, List[str]] = {}
+        self.clothing_freq_dict: Dict[str, int] = {}
 
     def _construct_clothing_dict(self, filtered_pictures):
         for pic in filtered_pictures:
             for person in pic.persons:
                 clothings = person.get_clothing_list()
                 for clothing in clothings:
+                    self.clothing_freq_dict[clothing["name"]] = self.clothing_freq_dict.get(clothing["name"], 0) + 1
                     name = clothing.get("name")
                     colors = clothing.get("color", [])
                     for color in colors:
@@ -208,23 +210,135 @@ class MultiPersonClothingFeatureQuestionGenerator(QuestionGenerator):
         print(f"Completed processing {total_name_combinations} new name combinations and {total_color_combinations} new color combinations.")
         print(f"Total entries in synonym dictionary: {len(self.synonym_dict)}")
         print(f"Total entries in distinguishable dictionary: {len(self.distinguishable_dict)}")
+
+
+    
+
+    def generate_questions(self):
+        """生成多图片多人物服饰特征相关的问题"""
+        questions = []
+
+        def find_image_partial_clothing(clothing_list, fit_count):
+            """找出恰好满足clothing_list中fit_count个服饰的图片-服饰对"""
+            clothing_word_buckets = [set(self.synonym_dict.get(clothing['name'], []) + [clothing['name']]) for clothing in clothing_list]
+            color_word_buckets = []
+            for clothing in clothing_list:
+                color_bucket = set(clothing.get('color', []))
+                for color in clothing.get('color', []):
+                    color_bucket.update(self.synonym_dict.get(color, []) + [color])
+                color_word_buckets.append(color_bucket)
+            image_clothing_list = []
+            for picture in self.dataset_pictures:
+                matched_clothing_results = []
+                for person in picture.persons:
+                    matched_clothing = []
+                    person_clothings = person.get_clothing_list(only_confident=False)
+                    for clothing_bucket, color_bucket in zip(clothing_word_buckets, color_word_buckets):
+                        for clothing in person_clothings:
+                            if clothing['name'] in clothing_bucket and any(color in clothing.get('color', []) for color in color_bucket):
+                                matched_clothing.append(clothing)
+                    if len(matched_clothing) >= fit_count:
+                        matched_clothing_results.append(matched_clothing)
+                
+                # 只有一人刚好达到fit_count
+                if len(matched_clothing_results) == 1 and len(matched_clothing_results[0]) == fit_count:
+                    image_clothing_list.append((picture, matched_clothing_results[0]))
+                    self.picture_occurrence[picture] = self.picture_occurrence.get(picture, 0) + 1
+            return image_clothing_list
         
+        def clothing_color_match_score(picture, colors: set[str]):
+            color_count = 0
+            for person in picture.persons:
+                person_colors = set()
+                for clothing in person.get_clothing_list(only_confident=False):
+                    person_colors.update(clothing.get('color', []))
+                color_count += len(person_colors & colors)
+            return color_count
+
+        first_image_clothing_list = []
+        second_image_clothing_list_list = []
+        third_image_clothing_list_list = []
+        fourth_image_clothing_list_list = []
+        
+        # 先确定第一张图片：有占比超过20%的人物，且有超过三件服饰
+        total_pictures = len(self.dataset_pictures)
+        processed_pictures = 0
+        print(f"开始处理 {total_pictures} 张图片，寻找符合条件的服装组合...")
+        
+        for picture in self.dataset_pictures:
+            for person in picture.persons:
+                # 对于每一个穿着超过三件服饰的人物，记录下他们穿着的最独特的三件服饰，并配合图片
+                if person.body_area() > 0.2 and len(person.get_clothing_list(only_confident=True)) > 3:
+                    top_clothings = sorted(person.get_clothing_list(only_confident=True), key=lambda x: self.clothing_freq_dict[x['name']])[:3]
+                    first_image_clothing_list.append((picture, top_clothings))
+                    color_appeared = set()
+                    for clothing in top_clothings:
+                        for color in clothing.get('color', []):
+                            color_appeared.update(self.synonym_dict.get(color, []) + [color])
+                    self.picture_occurrence[picture] = self.picture_occurrence.get(picture, 0) + 1
+                    # 再找出部分符合的图片
+                    partial_clothing = find_image_partial_clothing(top_clothings, fit_count=2)
+                    if len(partial_clothing) > 10:
+                        # 太多的话，先找颜色最符合的图片
+                        partial_clothing = sorted(partial_clothing, key=lambda x: -clothing_color_match_score(x[0], color_appeared))[:10]
+                    # 以及更欠符合的图片
+                    less_fitting_clothing = find_image_partial_clothing(top_clothings, fit_count=1)
+                    if len(less_fitting_clothing) > 10:
+                        less_fitting_clothing = sorted(less_fitting_clothing, key=lambda x: -clothing_color_match_score(x[0], color_appeared))[:10]
+                    # 以及最不符合的图片
+                    least_fitting_clothing = find_image_partial_clothing(top_clothings, fit_count=0)
+                    if len(least_fitting_clothing) > 10:
+                        least_fitting_clothing = sorted(least_fitting_clothing, key=lambda x: -clothing_color_match_score(x[0], color_appeared))[:10]
+                    second_image_clothing_list_list.append(partial_clothing)
+                    third_image_clothing_list_list.append(less_fitting_clothing)
+                    fourth_image_clothing_list_list.append(least_fitting_clothing)
+            
+            processed_pictures += 1
+            if processed_pictures % 100 == 0 or processed_pictures == total_pictures:
+                print(f"已处理 {processed_pictures}/{total_pictures} 张图片，找到 {len(first_image_clothing_list)} 个符合条件的服装组合")
+
+        print(f"图片处理完成！共找到 {len(first_image_clothing_list)} 个符合条件的服装组合")
+        print("开始生成问题...")
+        
+        questions = []
+        total_combinations = len(first_image_clothing_list)
+        for idx, (first_image, second_image_list, third_image_list, fourth_image_list) in enumerate(zip(first_image_clothing_list, second_image_clothing_list_list, third_image_clothing_list_list, fourth_image_clothing_list_list)):
+            # 找self.clothing_freq_dict出现频率最少的图片
+            second_image = min(second_image_list, key=lambda x: self.clothing_freq_dict.get(x[0], 0), default=None)
+            third_image = min(third_image_list, key=lambda x: self.clothing_freq_dict.get(x[0], 0), default=None)
+            fourth_image = min(fourth_image_list, key=lambda x: self.clothing_freq_dict.get(x[0], 0), default=None)
+            if second_image is None or third_image is None or fourth_image is None:
+                continue
+            questions.append(
+                {
+                    "combine": first_image[1],
+                    "fullfit": first_image[0].image_path(),
+                    "duo": second_image[0].image_path(),
+                    "duo_admit": second_image[1],
+                    "solo": third_image[0].image_path(),
+                    "solo_admit": third_image[1],
+                    "none": fourth_image[0].image_path()
+                }
+            )
+            
+            if (idx + 1) % 50 == 0 or (idx + 1) == total_combinations:
+                print(f"已生成 {idx + 1}/{total_combinations} 个问题")
+
+        print(f"问题生成完成！共生成 {len(questions)} 个多图服装特征问题")
+        return questions
 
     def filter_pictures(self):
         """过滤符合条件的图片"""
         filtered_pictures = []
         for picture in self.dataset_pictures:
-            # 需要人体占比超过30%
+            # 需要人体占比超过20%
             body_area_sum = sum(person.body_area() for person in picture.persons)
             # 需要至少有一人有一件服饰
             has_clothing = any(len(person.get_clothing_list()) > 0 for person in picture.persons)
-            if body_area_sum > 0.3 and has_clothing:
+            if body_area_sum > 0.2 and has_clothing:
                 filtered_pictures.append(picture)
         print(f"Filtered down to {len(filtered_pictures)} records for multi-person clothing feature questions.")
+        self.dataset_pictures = filtered_pictures
+        self._construct_clothing_dict(filtered_pictures)
         return filtered_pictures
         
-    def generate_questions(self):
-        filtered_pictures = self.filter_pictures()
-        self._construct_clothing_dict(filtered_pictures)
-        # TODO: 这里可以添加更多的题目生成逻辑
-        return []

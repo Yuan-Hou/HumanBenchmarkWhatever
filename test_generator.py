@@ -12,10 +12,11 @@ if __name__ == "__main__":
 
     # 生成多图人体服装特征题目
     multi_clothing_generator = MultiPersonClothingFeatureQuestionGenerator(dataset_pictures)
+    multi_clothing_generator.filter_pictures()
     clothing_questions = multi_clothing_generator.generate_questions()
     
-    # if clothing_questions:
-    #     multi_clothing_generator.save_questions(clothing_questions, "multi_clothing_feature_questions.json")
+    if clothing_questions:
+        multi_clothing_generator.save_questions(clothing_questions, "multi_clothing_feature_questions.json")
 
     # 生成多图人脸特征题目（目前注释掉，因为计算量较大）
     # multi_face_generator = MultiFaceFeatureQuestionGenerator(dataset_pictures)

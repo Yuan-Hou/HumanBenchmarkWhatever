@@ -161,7 +161,7 @@ def bounding_box_iou(box1, box2):
     return 0
 
 openai = OpenAI(
-    base_url="http://localhost:2335/v1", 
+    base_url="http://localhost:2336/v1", 
     api_key="NONONO",
 )
 
