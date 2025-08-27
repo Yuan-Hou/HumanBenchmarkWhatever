@@ -13,7 +13,36 @@ DATASET_PATH = os.getenv("DATASET_PATH", "./final_labeling")
 FACE_ATTR_NAMES = ['5 oClock Shadow', 'Arched Eyebrows', 'Attractive', 'Bags Under Eyes', 'Bald', 'Bangs', 'Big Lips', 'Big Nose', 'Black Hair', 'Blond Hair', 'Blurry', 'Brown Hair', 'Bushy Eyebrows', 'Chubby', 'Double Chin', 'Eyeglasses', 'Goatee', 'Gray Hair', 'Heavy Makeup', 'High Cheekbones', 'Male', 'Mouth Slightly Open', 'Mustache', 'Narrow Eyes', 'No Beard', 'Oval Face', 'Pale Skin', 'Pointy Nose', 'Receding Hairline', 'Rosy Cheeks', 'Sideburns', 'Smiling', 'Straight Hair', 'Wavy Hair', 'Wearing Earrings', 'Wearing Hat', 'Wearing Lipstick', 'Wearing Necklace', 'Wearing Necktie', 'Young']
 FACE_ATTR_ADMIT_THRESHOLD = np.array([0.80, 0.70, 0.80, 0.50, 0.20, 0.90,                                   0.70,       0.95,       0.50,        0.50,         0.70,     0.70,         0.80,             0.95,      0.80,         0.92,         0.50,      0.50,        0.75,           0.80,              0.98,   0.995,                0.30,        0.75,         0.98,       0.70,        0.40,        0.40,           0.60,                0.14,         0.60,        0.80,      0.70,            0.70,        0.70,                0.75,         0.60,               0.50,               0.70,              0.98])
 FACE_ATTR_DENY_THRESHOLD =  np.array([0.10, 0.05, 0.02, 0.05, 0.01, 0.05,                                   0.05,       0.05,       0.005,       0.01,         0.05,     0.01,         0.30,             0.40,      0.10,         0.005,        0.02,      0.005,       0.003,          0.01,              0.002,  0.02,                 0.005,       0.08,         0.40,       0.08,        0.004,       0.02,           0.01,                0.001,        0.02,        0.04,      0.05,            0.05,        0.02,                0.001,        0.01,               0.01,               0.001,             0.50])
-
+POSITION_SIMPLIFIER = {
+    'headscarf': "head",
+    'shoulder': "body", 
+    'ears': "head",
+    'thighs': "thigh", 
+    'hands': "hand",
+    'right eye': "face",
+    'right ear': "head",
+    'right half of the face': "face", 
+    'mirror': "hand", 
+    'nose': "face", 
+    'forehead': "head", 
+    'eyes': "face", 
+    'wrists': "hand", 
+    'arm': "hand", 
+    'tongue': "face", 
+    'lip': "face", 
+    'eyebrows': "face", 
+    'himself': "body", 
+    'back':"body", 
+    'left arm': "hand", 
+    'reins': "hand",
+    'hair': "head", 
+    'lap': "thigh", 
+    'mouth': "face", 
+    'left shoulder': "body", 
+    'pen': "hand", 
+    'mask': "face", 
+    'left chest': "body"
+}
 
 _full_data = None
 
@@ -21,11 +50,28 @@ class HoiObject:
     def __init__(self, data):
         self.raw_data = data
         self.box = data.get("box", None)
+    def get_name(self):
+        return self.raw_data.get("name", "")
 
 class Hoi:
     def __init__(self, data, obj: HoiObject):
         self.raw_data = data
         self.obj: HoiObject = obj
+    def get_actions(self):
+        return set([i[1] for i in self.raw_data.get("action", [])])
+    def get_positions(self):
+        org_pose = set([i[0] for i in self.raw_data.get("action", [])])
+        return set([POSITION_SIMPLIFIER.get(p, p) for p in org_pose])
+    def get_object_box(self):
+        return self.obj.box
+    def get_object_names(self):
+        return self.obj.raw_data.get("possible_names", [])
+    def get_object_name(self):
+        return self.obj.raw_data.get("name", "")
+    def get_negative_actions(self):
+        return self.raw_data.get("negative_action", [])
+    def get_position_action_pairs(self):
+        return set((POSITION_SIMPLIFIER.get(i[0], i[0]), i[1]) for i in self.raw_data.get("action", []))
 
 class Person:
     def __init__(self, data, detect_results):
@@ -48,10 +94,11 @@ class Person:
 
     def init_hoi_objects(self, objs: list[HoiObject]):
         for hoi in self.raw_data.get("hoi", []):
-            if "no interaction" in hoi["relationship"]["action"]:
+            if "no interaction" in [i[1] for i in hoi["relationship"]["action"]]:
                 continue
+
             if hoi.get("deleted") is not True and objs[hoi.get("object")] is not None:
-                self.hois.append(Hoi(hoi, objs[hoi.get("object")]))
+                self.hois.append(Hoi(hoi["relationship"], objs[hoi.get("object")]))
 
     def get_face_box(self):
         return self.raw_data.get("face_box", None)
@@ -122,13 +169,14 @@ class Person:
         if only_confident:
             clothings = [c for c in clothings if c.get("belonging_confident", True) and c.get("existence_confident", True)]
         return clothings
+    
 
 
 class Picture:
     def __init__(self, data):
         self.raw_data = data
         self.persons:List[Person] = [Person(p, data["detect_results"]) for p in data.get("persons", []) if p.get("deleted") is not True]
-        self.hoi_objects = []
+        self.hoi_objects: List[HoiObject] = []
         for obj in data.get("objects", []):
             if obj.get("deleted") is not True:
                 self.hoi_objects.append(HoiObject(obj))
@@ -139,6 +187,19 @@ class Picture:
 
     def image_path(self):
         return os.path.join(DATASET_PATH, self.raw_data.get("image_path").split("/")[-1])
+
+    def full_hoi(self):
+        result = []
+        for person in self.persons:
+            result.extend(person.hois)
+        return result
+
+    def object_names(self):
+        result = []
+        for obj in self.hoi_objects:
+            if obj is not None:
+                result.append(obj.get_name())
+        return result
 
 def get_full_data():
     global _full_data

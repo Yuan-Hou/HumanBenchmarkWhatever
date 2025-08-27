@@ -50,9 +50,9 @@ class MultiPersonClothingFeatureQuestionGenerator(QuestionGenerator):
         # 读取已有的同义词字典文件
         existing_synonyms = {}
         existing_distinguishable = {}
-        if os.path.exists("synonym_dict.json"):
+        if os.path.exists("clothing_synonym_dict.json"):
             try:
-                with open("synonym_dict.json", "r") as f:
+                with open("clothing_synonym_dict.json", "r") as f:
                     existing_data = json.load(f)
                     existing_synonyms = existing_data.get("synonyms", {})
                     existing_distinguishable = existing_data.get("distinguishable", {})
@@ -162,7 +162,7 @@ class MultiPersonClothingFeatureQuestionGenerator(QuestionGenerator):
                         cnt += 1
                         if cnt % 2000 == 0:
                             print(f"Processed {cnt}/{total_name_combinations} name combinations so far.")
-                            with open("synonym_dict.json", "w") as f:
+                            with open("clothing_synonym_dict.json", "w") as f:
                                 json.dump({
                                     "synonyms": self.synonym_dict,
                                     "distinguishable": self.distinguishable_dict
@@ -194,14 +194,14 @@ class MultiPersonClothingFeatureQuestionGenerator(QuestionGenerator):
                         processed_colors += 1
                         if processed_colors % 100 == 0:  # 更频繁地保存，避免丢失进度
                             print(f"Processed {processed_colors}/{total_color_combinations} color combinations so far.")
-                            with open("synonym_dict.json", "w") as f:
+                            with open("clothing_synonym_dict.json", "w") as f:
                                 json.dump({
                                     "synonyms": self.synonym_dict,
                                     "distinguishable": self.distinguishable_dict
                                 }, f)
         
         # 最终保存
-        with open("synonym_dict.json", "w") as f:
+        with open("clothing_synonym_dict.json", "w") as f:
             json.dump({
                 "synonyms": self.synonym_dict,
                 "distinguishable": self.distinguishable_dict
