@@ -337,6 +337,8 @@ class MultiPersonClothingFeatureQuestionGenerator(QuestionGenerator):
             has_clothing = any(len(person.get_clothing_list()) > 0 for person in picture.persons)
             if body_area_sum > 0.2 and has_clothing:
                 filtered_pictures.append(picture)
+            else:
+                filtered_pictures.append(picture)
         print(f"Filtered down to {len(filtered_pictures)} records for multi-person clothing feature questions.")
         self.dataset_pictures = filtered_pictures
         self._construct_clothing_dict(filtered_pictures)

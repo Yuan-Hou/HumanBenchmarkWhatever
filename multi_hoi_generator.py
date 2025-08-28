@@ -4,9 +4,10 @@ from typing import Dict, List
 import itertools
 import concurrent.futures
 import threading
-from test_framework import QuestionGenerator
+from test_framework import QuestionGenerator, POSITION_INCLUDE_MAP, POSITION_EXCLUDE_MAP, POSITION_SIMPLIFIER
 from utils import ask_question
 from sentence_transformers import SentenceTransformer, util
+
 
 
 class MultiImageHoiFeatureQuestionGenerator(QuestionGenerator):
@@ -16,24 +17,8 @@ class MultiImageHoiFeatureQuestionGenerator(QuestionGenerator):
         self.synonym_dict = {}
         self.sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
         self.word_embs = {}
-        self.position_include_map = {
-            "hand": ["left hand", "right hand", "both hands"],
-            "body": ["legs", "thigh"],
-            "head": ["face", "neck"],
-            "face": ["head"],
-            "neck": ["head"],
-            "legs": ["body"],
-            "thigh": ["body"]
-        }
-        self.position_exclude_map = {
-            "hand": ["left hand", "right hand", "both hands", "body", "thigh"],
-            "body": ["legs", "thigh"],
-            "head": ["face", "neck"],
-            "left hand": ["hand", "both hands", "body", "thigh"],
-            "right hand": ["hand", "both hands", "body", "thigh"],
-            "face": ["head"],
-            "neck": ["head"]
-        }
+        self.position_include_map = POSITION_INCLUDE_MAP
+        self.position_exclude_map = POSITION_EXCLUDE_MAP
 
 
     
@@ -138,38 +123,52 @@ class MultiImageHoiFeatureQuestionGenerator(QuestionGenerator):
                     diff_pos = find_hoi_match(objs=hoi.get_object_names(), actions=act, exclude_positions=exclude_positions, exclude_picture=picture)
                     diff_act = find_hoi_match(objs=hoi.get_object_names(), positions=include_positions, exclude_actions=exclude_acts, exclude_picture=picture)
                     diff_obj = find_hoi_match(actions=act, positions=include_positions, exclude_objs=hoi.get_object_names(), exclude_picture=picture)
-                    if len(diff_pos) > 0 and len(diff_act) > 0 and len(diff_obj) > 0:
+                    if len(diff_pos)  + len(diff_obj) > 2 and len(diff_pos) > 0 and len(diff_obj) > 0:
                         # 图片出现次数少的排前面
                         diff_pos.sort(key=lambda x: self.picture_occurrence.get(x, 0))
-                        diff_act.sort(key=lambda x: self.picture_occurrence.get(x, 0))
                         diff_obj.sort(key=lambda x: self.picture_occurrence.get(x, 0))
-
-                        action_diff = []
+                        
                         position_diff = []
                         happen_to_obj = set(synonym_expand(hoi.get_object_names())) | set(hoi.get_object_names())
-                        for a in diff_act[0].full_hoi():
-                            if len(set(a.get_object_names()) & happen_to_obj) > 0:
-                                action_diff.extend(a.get_actions())
+                        
                         for p in diff_pos[0].full_hoi():
                             if len(set(p.get_object_names()) & happen_to_obj) > 0:
                                 position_diff.extend(p.get_positions())
-                        # 取出最小的一组作为题目
-                        questions.append({
+
+                        extra_pos_diff = []
+                        diff_ext = None
+
+                        q = {
                             "object": hoi.get_object_name(),
                             "hoi": list(hoi.get_position_action_pairs()),
                             "full": picture.image_path(),
                             "diff_object": diff_obj[0].image_path(),
                             "object_diff": [h.get_object_name() for h in diff_obj[0].full_hoi()],
-                            "diff_action": diff_act[0].image_path(),
-                            "action_diff": action_diff,
                             "diff_position": diff_pos[0].image_path(),
                             "position_diff": position_diff
-                        })
+                        }
+                        if len(diff_pos) > 1:
+                            diff_ext = diff_pos[1]
+                            for p in diff_pos[1].full_hoi():
+                                if len(set(p.get_object_names()) & happen_to_obj) > 0:
+                                    extra_pos_diff.extend(p.get_positions())
+                            q["extra_type"] = "position"
+                            q["extra_diff"] = extra_pos_diff
+                            q["diff_extra"] = diff_ext.image_path()
+                        else:
+                            diff_ext = diff_obj[1]
+                            q["extra_type"] = "object"
+                            q["extra_diff"] = [h.get_object_name() for h in diff_ext.full_hoi()]
+                            q["diff_extra"] = diff_ext.image_path()
+
+                        # 取出最小的一组作为题目
+                        questions.append(q)
                         print(f"Found {len(questions)} multi-image HOI feature questions so far. {idx}/{len(self.dataset_pictures)}")
                         self.picture_occurrence[picture] = self.picture_occurrence.get(picture, 0) + 1
                         self.picture_occurrence[diff_obj[0]] = self.picture_occurrence.get(diff_obj[0], 0) + 1
-                        self.picture_occurrence[diff_act[0]] = self.picture_occurrence.get(diff_act[0], 0) + 1
+                        # self.picture_occurrence[diff_act[0]] = self.picture_occurrence.get(diff_act[0], 0) + 1
                         self.picture_occurrence[diff_pos[0]] = self.picture_occurrence.get(diff_pos[0], 0) + 1
+                        self.picture_occurrence[diff_ext] = self.picture_occurrence.get(diff_ext, 0) + 1
 
         return questions
 
